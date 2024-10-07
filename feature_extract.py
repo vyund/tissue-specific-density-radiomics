@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import SimpleITK as sitk
+from scipy.ndimage import zoom
 import radiomics
 from radiomics import featureextractor
 
@@ -15,14 +16,17 @@ with open('exclude.txt') as f:
     exclude = f.read().splitlines()
 EXCLUDE = [e.split(' - ')[0] for e in exclude]
 
-TISSUE_TYPE = 'adipose'
+TISSUE_TYPE = 'dense'
+VOLUMETRIC = True
 
 def get_tissue_mask(mask, tissue_type):
-    # 0 = air, 127 = adipose, 254 = dense
+    if mask.ndim == 2:
+        mask[mask!=0] += 1 # fix for adipose = 127, dense = 256
+    # 0 = air, 128 = adipose, 255 = dense
     if tissue_type == 'dense':
-        thresh = 254
+        thresh = 255
     elif tissue_type == 'adipose':
-        thresh = 127
+        thresh = 128
     
     if tissue_type != 'all':
         mask[mask != thresh] = 0
@@ -35,17 +39,20 @@ def get_tissue_mask(mask, tissue_type):
 
 if __name__ == '__main__':
     data_dir = "\\\\rad-maid-002/D/Users/vincent/prospr_data/data/all"
-    export_dir = './extracted_features/'
+    if VOLUMETRIC:
+        export_dir = './extracted_features/3D_'
+        params = './params/params_3D.yaml'
+    else:
+        export_dir = './extracted_features/'
+        params = './params/params.yaml'
 
-    params = './params/params.yaml'
     extractor = featureextractor.RadiomicsFeatureExtractor(params)
 
     extracted_fts = pd.DataFrame()
 
     #TODO: make extraction log text file (date of extraction, package versions, radiomic features, etc.)
 
-    #75562677_L_CC... (extraction ended here --> merge adipose_temp_1400 with new)
-    start_i = 1400
+    start_i = 0
     data = os.listdir(data_dir)
     data = data[start_i:]
     for i, sample in enumerate(data, start=start_i):
@@ -58,8 +65,12 @@ if __name__ == '__main__':
 
         sample_npz = np.load(data_dir + '/' + sample)
 
-        img = sitk.GetImageFromArray(sample_npz['proj_2D']) #TODO: check what the correct array is
-        mask = sitk.GetImageFromArray(get_tissue_mask(sample_npz['arg_max'], TISSUE_TYPE))
+        if VOLUMETRIC: #TODO: determine best way to downsample and to what new dimensions
+            img = sitk.GetImageFromArray(zoom(sample_npz['rec_3D'], (1, 0.1, 0.1)))
+            mask = sitk.GetImageFromArray(zoom(get_tissue_mask(sample_npz['mask_3D'], TISSUE_TYPE), (1, 0.1, 0.1)))
+        else:
+            img = sitk.GetImageFromArray(sample_npz['proj_2D'])
+            mask = sitk.GetImageFromArray(get_tissue_mask(sample_npz['arg_max'], TISSUE_TYPE))
 
         extracted = extractor.execute(img, mask, voxelBased=False)
 
