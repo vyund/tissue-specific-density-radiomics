@@ -7,4 +7,5 @@ params/
 results/
 shap_cv/
 
+exclude.txt
 process_reports.py
