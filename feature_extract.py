@@ -21,7 +21,7 @@ VOLUMETRIC = True
 
 def get_tissue_mask(mask, tissue_type):
     if mask.ndim == 2:
-        mask[mask!=0] += 1 # fix for adipose = 127, dense = 256
+        mask[mask!=0] += 1 # fix for adipose = 127, dense = 254
     # 0 = air, 128 = adipose, 255 = dense
     if tissue_type == 'dense':
         thresh = 255
