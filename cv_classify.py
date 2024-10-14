@@ -8,7 +8,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sn
 
-from sklearn.preprocessing import StandardScaler, LabelBinarizer
+from sklearn.preprocessing import StandardScaler, LabelBinarizer, label_binarize
 from sklearn.feature_selection import RFE
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.utils import resample
@@ -31,13 +31,14 @@ AGG_METHOD = 'median'
 NUM_FTS = 20
 FT_SET = 'discrete'
 
-RANDOM = True
+RANDOM = False
 SEED = 42
 #SEED = np.random.randint(0, 1e5)
 
+POOLED = True
 XAI = True
-ROC = False
-CM = False
+ROC = True
+CM = True
 
 with open('exclude.txt') as f:
     exclude = f.read().splitlines()
@@ -97,6 +98,9 @@ if __name__ == '__main__':
     figs = [fig0, fig1, fig2, fig3]
     target_names = ['Density Grade A', 'Density Grade B', 'Density Grade C', 'Density Grade D']
     mean_fpr = np.linspace(0, 1, 100)
+
+    pooled_probs = []
+    pooled_labels = []
     
     for i, (train_idx, test_idx) in enumerate(cv.split(X, y)):
         if RANDOM:
@@ -143,7 +147,7 @@ if __name__ == '__main__':
                 all_selected_shap.extend(c_shap_fts)
             
             all_selected_df = pd.DataFrame(all_selected_shap)
-            all_selected_df.to_csv('./shap_cv/selected_fts_{}.csv'.format(i))
+            #all_selected_df.to_csv('./shap_cv/selected_fts_{}.csv'.format(i))
             selected_shap = list(set(all_selected_shap))
 
             # final fit and eval
@@ -210,12 +214,29 @@ if __name__ == '__main__':
                 interp_tpr[0] = 0.0
                 tprs[c].append(interp_tpr)
                 aucs[c].append(viz.roc_auc)
+        
+        pooled_probs.append(probs)
+        pooled_labels.append(y_test)
 
     if XAI:
         mean_color = 'b'
     else:
         mean_color = 'r'
     
+    pooled_probs_flat = [x for xs in pooled_probs for x in xs]
+    pooled_labels_flat = [x for xs in pooled_labels for x in xs]
+    pooled_df = pd.DataFrame(pooled_probs_flat)
+    pooled_onehot = label_binarize(pooled_labels_flat, classes=[0, 1, 2, 3])
+
+    #pooled_df['label'] = pooled_labels_flat
+
+    '''
+    if XAI:
+        pooled_df.to_csv(export_dir + '/shap_pooled_probs_{}.csv'.format(SEED))
+    else:
+        pooled_df.to_csv(export_dir + '/pooled_probs_{}.csv'.format(SEED))
+    '''
+
     print(1)
     # roc curves
     if ROC:
@@ -224,14 +245,28 @@ if __name__ == '__main__':
             mean_tpr[-1] = 1.0
             mean_auc = auc(mean_fpr, mean_tpr)
             std_auc = np.std(aucs[c])
-            select_class[c].plot(
-                mean_fpr,
-                mean_tpr,
-                color=mean_color,
-                label=r"Mean ROC (AUC = %0.2f $\pm$ %0.2f)" % (mean_auc, std_auc),
-                lw=2,
-                alpha=0.8,
-            )
+            if POOLED:
+                auc_check = roc_auc_score(pooled_onehot[:, c], pooled_df[c])
+                if auc_check < 0.5:
+                    pooled_df[c] = 1 - pooled_df[c]
+                viz = RocCurveDisplay.from_predictions(
+                    pooled_onehot[:, c],
+                    pooled_df[c],
+                    color=mean_color,
+                    name=f"Pooled ROC",
+                    lw=2,
+                    alpha=0.8,
+                    ax=select_class[c]
+                )
+            else:
+                select_class[c].plot(
+                    mean_fpr,
+                    mean_tpr,
+                    color=mean_color,
+                    label=r"Mean ROC (AUC = %0.2f $\pm$ %0.2f)" % (mean_auc, std_auc),
+                    lw=2,
+                    alpha=0.8,
+                )
 
             lims = [
                 np.min([select_class[c].get_xlim(), select_class[c].get_ylim()]),  # min of both axes
@@ -277,12 +312,13 @@ if __name__ == '__main__':
         cms_norm = cms.astype('float') / cms.sum(axis=1)[:, np.newaxis]
         avg_score = np.mean(accs)
         std_score = np.std(accs)
+        combined = np.array([[f"{cms_val} ({cms_norm_val:.2f})" for cms_val, cms_norm_val in zip(cms_row, cms_norm_row)] for cms_row, cms_norm_row in zip(cms, cms_norm)])
         
         plt.figure()
         if XAI:
-            sn.heatmap(cms, annot=True, cbar=False, cmap='Blues', xticklabels=tick_labels, yticklabels=tick_labels, fmt='d')
+            sn.heatmap(cms, annot=combined, cbar=False, cmap='Blues', xticklabels=tick_labels, yticklabels=tick_labels, fmt='')
         else:
-            sn.heatmap(cms, annot=True, cbar=False, cmap='Reds', xticklabels=tick_labels, yticklabels=tick_labels, fmt='d')
+            sn.heatmap(cms, annot=combined, cbar=False, cmap='Reds', xticklabels=tick_labels, yticklabels=tick_labels, fmt='')
         plt.xlabel('Predicted')
         plt.ylabel('True')
         if XAI:
