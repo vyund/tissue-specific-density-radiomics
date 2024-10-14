@@ -40,10 +40,10 @@ def get_tissue_mask(mask, tissue_type):
 if __name__ == '__main__':
     data_dir = "\\\\rad-maid-002/D/Users/vincent/prospr_data/data/all"
     if VOLUMETRIC:
-        export_dir = './extracted_features/3D_'
+        export_dir = './extracted_fts/3D_'
         params = './params/params_3D.yaml'
     else:
-        export_dir = './extracted_features/'
+        export_dir = './extracted_ftss/'
         params = './params/params.yaml'
 
     extractor = featureextractor.RadiomicsFeatureExtractor(params)

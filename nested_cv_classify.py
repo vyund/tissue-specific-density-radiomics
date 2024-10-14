@@ -67,7 +67,7 @@ def calc_metrics(clf, X_test, y_train, y_test, num_classes):
     return acc, aucs, cm, cr, pearson_r
 
 if __name__ == '__main__':
-    data_path = './extracted_features/extracted_fts_{}.csv'.format(FT_SET)
+    data_path = './extracted_fts/extracted_fts_{}.csv'.format(FT_SET)
     label_path = './labels/reports.csv'
     
     data = pd.read_csv(data_path)

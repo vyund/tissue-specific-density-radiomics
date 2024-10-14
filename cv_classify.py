@@ -49,7 +49,7 @@ np.int = np.int_
 
 if __name__ == '__main__':
     export_dir = './results/cv_results'
-    data_path = './extracted_features/extracted_fts_{}.csv'.format(FT_SET)
+    data_path = './extracted_fts/extracted_fts_{}.csv'.format(FT_SET)
     label_path = './labels/reports.csv'
     
     data = pd.read_csv(data_path)

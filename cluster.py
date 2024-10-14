@@ -120,7 +120,7 @@ def hover(event):
                 fig.canvas.draw_idle()
 
 if __name__ == '__main__':
-    data_path = './extracted_features/extracted_fts_{}.csv'.format(FT_SET) #after feature selection
+    data_path = './extracted_fts/extracted_fts_{}.csv'.format(FT_SET) #after feature selection
     #data_path = './extracted_fts_all.csv' #original image features
 
     label_path = './labels/reports.csv'
