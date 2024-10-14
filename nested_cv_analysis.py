@@ -19,10 +19,12 @@ def jaccard(list1, list2):
     return float(intersection) / union
 
 if __name__ == '__main__':
-    results_path = './results/nested_cv_results/nested_cv_results.csv'
+    experiment_name = 'iwbi_icad_rad_results'
+    #results_path = './results/nested_cv_results/nested_cv_results.csv'
+    results_path = './results/{}/nested_cv_results_rad_no_d.csv'.format(experiment_name)
     results = pd.read_csv(results_path)
 
-    num_classes = 4
+    num_classes = 3
     num_folds = 5
 
     #acc
@@ -43,20 +45,25 @@ if __name__ == '__main__':
     #cm
     
     cms = results['cm']
-    pooled_cm = [[0, 0, 0, 0] for i in range(num_classes)]
+    if num_classes == 3:
+        tick_labels = ['A', 'B', 'C']
+        pooled_cm = [[0, 0, 0] for i in range(num_classes)]
+    else:
+        tick_labels = ['A', 'B', 'C', 'D']
+        pooled_cm = [[0, 0, 0, 0] for i in range(num_classes)]
     for f in range(num_folds):
         stripped = '\n'.join(re.sub(r'\s+', ' ', line.replace('[ ', '[')) for line in cms[f].splitlines())
         c_cm = ast.literal_eval(stripped.replace(' ', ','))
         for i, (pcm, ccm) in enumerate(zip(pooled_cm, c_cm)):
             pooled_cm[i] = [x + y for x, y in zip(pcm, ccm)]
 
-    tick_labels = ['A', 'B', 'C', 'D']
+    
     plt.figure()
     sn.heatmap(pooled_cm, annot=True, cbar=False, cmap='Blues', xticklabels=tick_labels, yticklabels=tick_labels, fmt='d')
     plt.xlabel('Predicted')
     plt.ylabel('True')
     plt.title('Pooled Confusion Matrix (Nested Cross-Validation)')
-    plt.savefig('./results/nested_cv_results/nested_cv_pooled_cm.png', dpi=400)
+    plt.savefig('./results/{}/nested_cv_pooled_cm.png'.format(experiment_name), dpi=400)
     plt.close()
 
     print(1)
@@ -90,7 +97,10 @@ if __name__ == '__main__':
     '''
     # plot acc + auc errorplot
     plt.figure()
-    X = ['Accuracy', 'AUC - A', 'AUC - B', 'AUC - C', 'AUC - D']
+    if num_classes == 3:
+        X = ['Accuracy', 'AUC - A', 'AUC - B', 'AUC - C']
+    else:
+        X = ['Accuracy', 'AUC - A', 'AUC - B', 'AUC - C', 'AUC - D']
     y = class_mean_aucs
     y.insert(0, mean_acc)
     y_err = class_std_aucs
@@ -107,6 +117,6 @@ if __name__ == '__main__':
         plt.text(X[i], y[i] + offset, '  {:.3f}'.format(y[i]))
 
     ax.spines[['right', 'top']].set_visible(False)
-    plt.savefig('./results/nested_cv_results/nested_cv_clf_performance.png', dpi=400)
+    plt.savefig('./results/{}/nested_cv_clf_performance.png'.format(experiment_name), dpi=400)
 
     print(1)
