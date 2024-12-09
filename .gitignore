@@ -1,11 +1,22 @@
 .vscode/
 __pycache__/
 data_check/
+ext_val/
 extracted_fts/
+final_figs/
 labels/
 params/
 results/
+results backup/
+selected_fts/
 shap_cv/
 
+controls.txt
+data_check.py
+data_paths.txt
 exclude.txt
+nested_cv_analysis.py
+nested_cv_classify.py
+odds_ratio.py
+pooled_analysis.py
 process_reports.py

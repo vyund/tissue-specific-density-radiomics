@@ -7,9 +7,6 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
 import matplotlib.colors as mcolors
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-
-import seaborn as sn
 
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
@@ -31,9 +28,20 @@ with warnings.catch_warnings():
 Script to perform UMAP/tSNE unsupervised clustering
 '''
 
-with open('exclude.txt') as f:
-    exclude = f.read().splitlines()
-EXCLUDE = [e.split(' - ')[0] for e in exclude]
+CLUSTER_ALG = 'umap'
+FT_SET = 'discrete'
+LABEL = 'density_grade'
+XAI = True
+AGG = True
+AFTER = False
+SAVE_FIG = True
+ANNOTATE = False
+
+RANDOM = False
+if RANDOM:
+    SEED = np.random.randint(0, 1e5)
+else:
+    SEED = 42
 
 GRADE_DICT = {
         'a': 0,
@@ -43,20 +51,9 @@ GRADE_DICT = {
     }
 GRADE_DICT = dict((v, k.upper()) for k, v in GRADE_DICT.items())
 
-CLUSTER_ALG = 'umap'
-FT_SET = 'discrete'
-
-SELECTED_FT_SET = 'shap_b' #TODO: rfe, shap_b, shap_m (binary selection vs multiclass selection)
-#TODO: binary = top 5 features for each class, then remove duplicates
-#TODO: multiclass = features above 0.10 mean abs SHAP value
-
-LABEL = 'density_grade'
-
-AGG = True
-
-AFTER = True
-SAVE_FIG = True
-ANNOTATE = False
+with open('exclude.txt') as f:
+    exclude = f.read().splitlines()
+EXCLUDE = [e.split(' - ')[0] for e in exclude]
 
 def filter_single_view(data, view='MLO'):
     return data[data['sample_name'].str.contains(view)]
@@ -69,12 +66,10 @@ def colorbar_index(ncolors, cmap):
     colorbar = plt.colorbar(mappable, ax=plt.gca())
     colorbar.set_ticks(np.linspace(0, ncolors, ncolors))
     colorbar.ax.zorder = -1
+    colorbar.ax.invert_yaxis()
 
     if LABEL == 'density_grade':
-        if SUB_GRADE:
-            colorbar.set_ticklabels([SUB_GRADE_DICT[i] for i in range(ncolors)])
-        else:
-            colorbar.set_ticklabels([GRADE_DICT[i] for i in range(ncolors)])
+        colorbar.set_ticklabels([GRADE_DICT[i] for i in range(ncolors)])
     else:
         colorbar.set_ticklabels(str(i) for i in range(ncolors))
 
@@ -90,16 +85,15 @@ def cmap_discretize(cmap, N):
 
     return mcolors.LinearSegmentedColormap(cmap.name + "%d"%N, cdict, 1024)
 
+
+# Old code for annotating plot, should be replaced by updated UMAP capabilities
+
 def update_annot(ind):
     pos = sc.get_offsets()[ind['ind'][0]]
     annot.xy = pos
 
     if LABEL == 'density_grade':
-        if SUB_GRADE:
-            text = '{} : {}'.format(' '.join([SUB_GRADE_DICT[y[i]] for i in ind['ind']]), ' '.join([ids[i] for i in ind['ind']]))
-        else:
-            text = '{} : {}'.format(' '.join([GRADE_DICT[y[i]] for i in ind['ind']]), ' '.join([ids[i] for i in ind['ind']]))
-        
+        text = '{} : {}'.format(' '.join([GRADE_DICT[y[i]] for i in ind['ind']]), ' '.join([ids[i] for i in ind['ind']]))
     else:
         text = '{} : {}'.format(' '.join([str(y[i]) for i in ind['ind']]), ' '.join([ids[i] for i in ind['ind']]))
 
@@ -120,16 +114,17 @@ def hover(event):
                 fig.canvas.draw_idle()
 
 if __name__ == '__main__':
-    data_path = './extracted_fts/extracted_fts_{}.csv'.format(FT_SET) #after feature selection
-    #data_path = './extracted_fts_all.csv' #original image features
+    data_path = './extracted_fts/extracted_fts_{}.csv'.format(FT_SET) #all features
 
     label_path = './labels/reports.csv'
     #export_dir = './cluster_{}_{}_{}'.format(CLUSTER_ALG, FT_SET, SELECTED_FT_SET)
     export_dir = './results/cluster'
 
     if AFTER:
-        #selected_fts_path = './selected_fts_{}_{}.csv'.format(FT_SET, SELECTED_FT_SET)
-        selected_fts_path = './shap_cv/selected_fts_0.csv' #temp using 0
+        if XAI:
+            selected_fts_path = './selected_fts/i_shap_selected_fts_{}.csv'.format(SEED)
+        else:
+            selected_fts_path = './selected_fts/i_selected_fts_{}.csv'.format(SEED)
         selected_fts = pd.read_csv(selected_fts_path)['0'].to_list()
 
     if SAVE_FIG:
@@ -138,8 +133,6 @@ if __name__ == '__main__':
 
     data = pd.read_csv(data_path)
     data = data[~data['sample_name'].isin(EXCLUDE)]
-    #data = data.drop('Unnamed: 0', axis=1) #TODO: not needed for new combined fts (discrete + combined) as of 8/5/23
-    #labels = pd.read_excel(label_path)
     labels = pd.read_csv(label_path)
 
     #data_filtered = filter_single_view(data, view='MLO')
@@ -159,7 +152,7 @@ if __name__ == '__main__':
 
     X = X.drop(columns=['sample_id', LABEL])
 
-    #X = X.loc[:, ~X.columns.str.contains('shape2D')] #remove shape features to check
+    #X = X.loc[:, ~X.columns.str.contains('shape2D')] #remove shape features for sanity check
 
     X, pruned_var = prune_var(X)
     X, pruned_corr = prune_corr(X)
@@ -167,30 +160,29 @@ if __name__ == '__main__':
 
     X = X.loc[:, (X != 0).any(axis=0)] # remove columns with all 0
 
-    if SELECTED_FT_SET == 'shap_b' and AFTER:
-        selected_fts = [*set(selected_fts)]
-        print(len(selected_fts))
-
     if AFTER:
+        selected_fts = [*set(selected_fts)]
         X = X[selected_fts]
     
     num_classes = y.value_counts().shape[0]
 
-    cmap = mpl.colormaps.get_cmap('plasma')
+    color_list = mpl.colormaps.get_cmap('Set2')
+    colors = color_list.colors[0:num_classes]
+    cmap = mcolors.ListedColormap(colors)
 
-    for num_neighbors in range(40, 64, 5):
+    for num_neighbors in range(55, 59, 5):
         if num_neighbors == 0:
             num_neighbors = 1
 
         if CLUSTER_ALG == 'tsne':
-            model = TSNE(n_components=2, perplexity=num_neighbors, learning_rate='auto', n_iter=10000, metric='euclidean', random_state=42, verbose=1)
+            model = TSNE(n_components=2, perplexity=num_neighbors, learning_rate='auto', n_iter=10000, metric='euclidean', random_state=SEED, verbose=1)
         elif CLUSTER_ALG == 'umap':
-            model = umap.UMAP(n_components=2, n_neighbors=num_neighbors, min_dist=0.1, random_state=42)
+            model = umap.UMAP(n_components=2, n_neighbors=num_neighbors, min_dist=0.1, random_state=SEED)
 
         embedding = model.fit_transform(X)
 
         fig, ax = plt.subplots()
-        ax.set_facecolor('black')
+
         sc = plt.scatter(embedding[:, 0], embedding[:, 1], c=y, cmap=cmap, s=25)
 
         if LABEL != 'case_scores':
@@ -198,6 +190,7 @@ if __name__ == '__main__':
         else:
             plt.colorbar(sc)
 
+        # Outdated with updates to UMAP package
         if ANNOTATE:
             annot = ax.annotate('', xy=(0,0), xytext=(10, 12), textcoords='offset points', color='black',
                                 bbox=dict(boxstyle='round', fc='w'), arrowprops=dict(arrowstyle='->', color='w'))
@@ -207,9 +200,11 @@ if __name__ == '__main__':
         #plt.suptitle('{} on {} - {}_{}'.format(CLUSTER_ALG.upper(), LABEL, FT_SET, SELECTED_FT_SET), fontsize=18)
         #plt.title('N-Neighbors = {}'.format(num_neighbors))
         if AFTER:
-            plt.title('UMAP after Feature Selection (neighbors = {})'.format(num_neighbors), fontsize=14)
+            #plt.title('UMAP after Feature Selection (neighbors = {})'.format(num_neighbors), fontsize=14)
+            plt.title('UMAP after Feature Selection', fontsize=14)
         else:
-            plt.title('UMAP before Feature Selection (neighbors = {})'.format(num_neighbors), fontsize=14)
+            #plt.title('UMAP before Feature Selection (neighbors = {})'.format(num_neighbors), fontsize=14)
+            plt.title('UMAP before Feature Selection', fontsize=14)
         ax.set_xticks([])
         ax.set_yticks([])
         plt.tight_layout()
@@ -222,7 +217,4 @@ if __name__ == '__main__':
                 plt.savefig('{}/umap_pre_{}.png'.format(export_dir, num_neighbors), dpi=400)
         else:
             plt.show()
-
         plt.close()
-
-    print(1)

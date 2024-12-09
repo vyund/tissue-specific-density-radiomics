@@ -2,16 +2,13 @@ import os
 
 import pandas as pd
 import numpy as np
-from math import sqrt
 
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 import seaborn as sn
 
 from sklearn.preprocessing import StandardScaler, LabelBinarizer, label_binarize
 from sklearn.feature_selection import RFE
-from sklearn.model_selection import train_test_split, StratifiedKFold
-from sklearn.utils import resample
+from sklearn.model_selection import StratifiedKFold
 
 from sklearn.linear_model import LogisticRegression
 import shap
@@ -25,20 +22,21 @@ from utils import *
 Script to run standard cross-validation and generate pooled confusion matrix or per-class ROC curves
 '''
 
-LABEL = 'density_grade'
 AGG_METHOD = 'median'
-
-NUM_FTS = 20
 FT_SET = 'discrete'
-
-RANDOM = False
-SEED = 42
-#SEED = np.random.randint(0, 1e5)
-
-POOLED = True
+LABEL = 'density_grade'
 XAI = True
+BINARY = True
+POOLED = True
 ROC = True
 CM = True
+NUM_FTS = 20
+
+RANDOM = False
+if RANDOM:
+    SEED = np.random.randint(0, 1e5)
+else:
+    SEED = 42
 
 with open('exclude.txt') as f:
     exclude = f.read().splitlines()
@@ -48,7 +46,10 @@ np.bool = np.bool_
 np.int = np.int_
 
 if __name__ == '__main__':
-    export_dir = './results/cv_results'
+    if BINARY:
+        export_dir = './results/binary_results'
+    else:
+        export_dir = './results/cv_results'
     data_path = './extracted_fts/extracted_fts_{}.csv'.format(FT_SET)
     label_path = './labels/reports.csv'
     
@@ -63,19 +64,19 @@ if __name__ == '__main__':
     data_agg = aggregate_views(data, aggregate_on='sample_id', method=AGG_METHOD)
 
     X = pd.merge(data_agg.astype({'sample_id': 'str'}), labels_filtered.astype({'DummyID': 'str'}).rename(columns={'DummyID': 'sample_id'}), on='sample_id')
-    y = X[LABEL]
+    if BINARY:
+        y = X[LABEL].map({0: 0, 1: 0, 2: 1, 3: 1})
+    else:
+        y = X[LABEL]
     ids = X['sample_id']
 
     X = X.drop(columns=['sample_id', LABEL])
 
     X, pruned_var = prune_var(X)
     X, pruned = prune_corr(X)
-    X[X.columns] = StandardScaler().fit_transform(X)
 
     X = X.loc[:, (X != 0).any(axis=0)] # remove columns with all 0
 
-    print(SEED)
-    print(y.value_counts())
     num_classes = y.value_counts().shape[0]
 
     n_size = int(len(X) * .8)
@@ -83,35 +84,39 @@ if __name__ == '__main__':
     accs = []
     aucs = [[] for i in range(num_classes)]
     tprs = [[] for i in range(num_classes)]
-    cms = np.zeros((4, 4), dtype=int)
+    cms = np.zeros((num_classes, num_classes), dtype=int)
 
     num_splits = 5
     cv = StratifiedKFold(num_splits, shuffle=True, random_state=SEED)
     
-    # make figs for each class
-    fig0, ax0 = plt.subplots()
-    fig1, ax1 = plt.subplots()
-    fig2, ax2 = plt.subplots()
-    fig3, ax3 = plt.subplots()
-    
-    select_class = [ax0, ax1, ax2, ax3]
-    figs = [fig0, fig1, fig2, fig3]
-    target_names = ['Density Grade A', 'Density Grade B', 'Density Grade C', 'Density Grade D']
+    if BINARY:
+        fig, ax = plt.subplots()
+        target_names = ['Non-dense', 'Dense']
+    else:
+        # make figs for each class
+        fig0, ax0 = plt.subplots()
+        fig1, ax1 = plt.subplots()
+        fig2, ax2 = plt.subplots()
+        fig3, ax3 = plt.subplots()
+        
+        select_class = [ax0, ax1, ax2, ax3]
+        figs = [fig0, fig1, fig2, fig3]
+        target_names = ['Density Grade A', 'Density Grade B', 'Density Grade C', 'Density Grade D']
     mean_fpr = np.linspace(0, 1, 100)
 
+    pooled_preds = []
     pooled_probs = []
     pooled_labels = []
     
     for i, (train_idx, test_idx) in enumerate(cv.split(X, y)):
-        if RANDOM:
-            clf = LogisticRegression(max_iter=500, random_state=SEED)
-        else:
-            clf = LogisticRegression(max_iter=500, random_state=SEED)
-        #clf = RandomForestClassifier(random_state=42)
-        #clf = SVC(kernel='linear', random_state=42)
+        clf = LogisticRegression(max_iter=500, random_state=SEED)
 
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
         y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+
+        scaler = StandardScaler()
+        X_train[X_train.columns] = scaler.fit_transform(X_train)
+        X_test[X_test.columns] = scaler.transform(X_test)
 
         if i == 0:
              print('Training Size: {}, Test Size: {}'.format(len(X_train), len(X_test)))
@@ -194,27 +199,44 @@ if __name__ == '__main__':
             probs = clf.predict_proba(X_test_rfe)
         
         if ROC:
-            label_binarizer = LabelBinarizer().fit(y_train)
-            y_onehot_test = label_binarizer.transform(y_test)
-
-            for c in range(num_classes):
-                auc_check = roc_auc_score(y_onehot_test[:, c], probs[:, c])
+            if BINARY:
+                auc_check = roc_auc_score(y_test, probs[:, 1])
                 if auc_check < 0.5:
-                    probs[:, c] = 1 - probs[:, c]
+                    probs[:, 1] = 1 - probs[:, 1]
                 viz = RocCurveDisplay.from_predictions(
-                    y_onehot_test[:, c],
-                    probs[:, c],
-                    name=f"ROC - Fold {i+1}",
-                    alpha=0.3,
-                    lw=1,
-                    ax=select_class[c],
-                    #plot_chance_level=(i == num_splits - 1),
+                        y_test,
+                        probs[:, 1],
+                        name=f"ROC - Fold {i+1}",
+                        alpha=0.3,
+                        lw=1,
+                        ax=ax,
                 )
                 interp_tpr = np.interp(mean_fpr, viz.fpr, viz.tpr)
                 interp_tpr[0] = 0.0
-                tprs[c].append(interp_tpr)
-                aucs[c].append(viz.roc_auc)
+                tprs[1].append(interp_tpr)
+                aucs[1].append(viz.roc_auc)
+            else:
+                label_binarizer = LabelBinarizer().fit(y_train)
+                y_onehot_test = label_binarizer.transform(y_test)
+
+                for c in range(num_classes):
+                    auc_check = roc_auc_score(y_onehot_test[:, c], probs[:, c])
+                    if auc_check < 0.5:
+                        probs[:, c] = 1 - probs[:, c]
+                    viz = RocCurveDisplay.from_predictions(
+                        y_onehot_test[:, c],
+                        probs[:, c],
+                        name=f"ROC - Fold {i+1}",
+                        alpha=0.3,
+                        lw=1,
+                        ax=select_class[c],
+                    )
+                    interp_tpr = np.interp(mean_fpr, viz.fpr, viz.tpr)
+                    interp_tpr[0] = 0.0
+                    tprs[c].append(interp_tpr)
+                    aucs[c].append(viz.roc_auc)
         
+        pooled_preds.append(preds)
         pooled_probs.append(probs)
         pooled_labels.append(y_test)
 
@@ -223,43 +245,42 @@ if __name__ == '__main__':
     else:
         mean_color = 'r'
     
+    pooled_preds_flat = [x for xs in pooled_preds for x in xs]
     pooled_probs_flat = [x for xs in pooled_probs for x in xs]
     pooled_labels_flat = [x for xs in pooled_labels for x in xs]
     pooled_df = pd.DataFrame(pooled_probs_flat)
-    pooled_onehot = label_binarize(pooled_labels_flat, classes=[0, 1, 2, 3])
+    pooled_onehot = label_binarize(pooled_labels_flat, classes=range(num_classes))
 
-    #pooled_df['label'] = pooled_labels_flat
-
-    '''
+    pooled_df['label'] = pooled_labels_flat
+    
     if XAI:
         pooled_df.to_csv(export_dir + '/shap_pooled_probs_{}.csv'.format(SEED))
     else:
         pooled_df.to_csv(export_dir + '/pooled_probs_{}.csv'.format(SEED))
-    '''
-
-    print(1)
+    
     # roc curves
     if ROC:
-        for c in range(num_classes):
-            mean_tpr = np.mean(tprs[c], axis=0)
+        if BINARY:
+            mean_tpr = np.mean(tprs[1], axis=0)
             mean_tpr[-1] = 1.0
             mean_auc = auc(mean_fpr, mean_tpr)
-            std_auc = np.std(aucs[c])
+            std_auc = np.std(aucs[1])
+            print('Binary AUC: {} +- {}'.format(mean_auc, std_auc))
             if POOLED:
-                auc_check = roc_auc_score(pooled_onehot[:, c], pooled_df[c])
+                auc_check = roc_auc_score(pooled_labels_flat, pooled_df[1])
                 if auc_check < 0.5:
-                    pooled_df[c] = 1 - pooled_df[c]
+                    pooled_df[1] = 1 - pooled_df[1]
                 viz = RocCurveDisplay.from_predictions(
-                    pooled_onehot[:, c],
-                    pooled_df[c],
+                    pooled_labels_flat,
+                    pooled_df[1],
                     color=mean_color,
                     name=f"Pooled ROC",
                     lw=2,
                     alpha=0.8,
-                    ax=select_class[c]
+                    ax=ax
                 )
             else:
-                select_class[c].plot(
+                ax.plot(
                     mean_fpr,
                     mean_tpr,
                     color=mean_color,
@@ -267,17 +288,17 @@ if __name__ == '__main__':
                     lw=2,
                     alpha=0.8,
                 )
-
+            
             lims = [
-                np.min([select_class[c].get_xlim(), select_class[c].get_ylim()]),  # min of both axes
-                np.max([select_class[c].get_xlim(), select_class[c].get_ylim()]),  # max of both axes
+                    np.min([ax.get_xlim(), ax.get_ylim()]),  # min of both axes
+                    np.max([ax.get_xlim(), ax.get_ylim()]),  # max of both axes
             ]
-            select_class[c].plot(lims, lims, 'k--', alpha=0.75, zorder=0)
+            ax.plot(lims, lims, 'k--', alpha=0.75, zorder=0)
 
-            std_tpr = np.std(tprs[c], axis=0)
+            std_tpr = np.std(tprs[1], axis=0)
             tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
             tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
-            select_class[c].fill_between(
+            ax.fill_between(
                 mean_fpr,
                 tprs_lower,
                 tprs_upper,
@@ -286,29 +307,94 @@ if __name__ == '__main__':
                 label=r"$\pm$ 1 std. dev.",
             )
             if XAI:
-                select_class[c].set(
+                ax.set(
                     xlabel="False Positive Rate",
                     ylabel="True Positive Rate",
-                    title=f"RFE-SHAP Cross-validated ROC \n(Positive label '{target_names[c]}')",
+                    title=f"RFE-SHAP Cross-validated ROC \n(Non-dense vs. Dense)",
                 )
             else:
-                select_class[c].set(
+                ax.set(
                     xlabel="False Positive Rate",
                     ylabel="True Positive Rate",
-                    title=f"RFE Cross-validated ROC \n(Positive label '{target_names[c]}')",
+                    title=f"RFE Cross-validated ROC \n(Non-dense vs. Dense)",
                 )
-            select_class[c].legend(loc="lower right")
-        for i, fig in enumerate(figs):
+            ax.legend(loc="lower right")
             if XAI:
-                fig.savefig(export_dir + '/shap_roc_{}_{}.png'.format(i, SEED), dpi=400)
+                fig.savefig(export_dir + '/shap_roc_{}.png'.format(SEED), dpi=400)
             else:
-                fig.savefig(export_dir + '/roc_{}_{}.png'.format(i, SEED), dpi=400)
-    #plt.show()
-    print(1)
+                fig.savefig(export_dir + '/roc_{}.png'.format(SEED), dpi=400)
+        else:
+            for c in range(num_classes):
+                mean_tpr = np.mean(tprs[c], axis=0)
+                mean_tpr[-1] = 1.0
+                mean_auc = auc(mean_fpr, mean_tpr)
+                std_auc = np.std(aucs[c])
+                print('{} AUC: {} +- {}'.format(c, mean_auc, std_auc))
+                if POOLED:
+                    auc_check = roc_auc_score(pooled_onehot[:, c], pooled_df[c])
+                    if auc_check < 0.5:
+                        pooled_df[c] = 1 - pooled_df[c]
+                    viz = RocCurveDisplay.from_predictions(
+                        pooled_onehot[:, c],
+                        pooled_df[c],
+                        color=mean_color,
+                        name=f"Pooled ROC",
+                        lw=2,
+                        alpha=0.8,
+                        ax=select_class[c]
+                    )
+                else:
+                    select_class[c].plot(
+                        mean_fpr,
+                        mean_tpr,
+                        color=mean_color,
+                        label=r"Mean ROC (AUC = %0.2f $\pm$ %0.2f)" % (mean_auc, std_auc),
+                        lw=2,
+                        alpha=0.8,
+                    )
+
+                lims = [
+                    np.min([select_class[c].get_xlim(), select_class[c].get_ylim()]),  # min of both axes
+                    np.max([select_class[c].get_xlim(), select_class[c].get_ylim()]),  # max of both axes
+                ]
+                select_class[c].plot(lims, lims, 'k--', alpha=0.75, zorder=0)
+
+                std_tpr = np.std(tprs[c], axis=0)
+                tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+                tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+                select_class[c].fill_between(
+                    mean_fpr,
+                    tprs_lower,
+                    tprs_upper,
+                    color="grey",
+                    alpha=0.2,
+                    label=r"$\pm$ 1 std. dev.",
+                )
+                if XAI:
+                    select_class[c].set(
+                        xlabel="False Positive Rate",
+                        ylabel="True Positive Rate",
+                        title=f"RFE-SHAP Cross-validated ROC \n(Positive label '{target_names[c]}')",
+                    )
+                else:
+                    select_class[c].set(
+                        xlabel="False Positive Rate",
+                        ylabel="True Positive Rate",
+                        title=f"RFE Cross-validated ROC \n(Positive label '{target_names[c]}')",
+                    )
+                select_class[c].legend(loc="lower right")
+            for i, fig in enumerate(figs):
+                if XAI:
+                    fig.savefig(export_dir + '/shap_roc_{}_{}.png'.format(i, SEED), dpi=400)
+                else:
+                    fig.savefig(export_dir + '/roc_{}_{}.png'.format(i, SEED), dpi=400)
 
     # confusion matrix
     if CM:
-        tick_labels = ['A', 'B', 'C', 'D']
+        if BINARY:
+            tick_labels = ['Non-dense', 'Dense']
+        else:
+            tick_labels = ['A', 'B', 'C', 'D']
         cms_norm = cms.astype('float') / cms.sum(axis=1)[:, np.newaxis]
         avg_score = np.mean(accs)
         std_score = np.std(accs)
@@ -322,20 +408,13 @@ if __name__ == '__main__':
         plt.xlabel('Predicted')
         plt.ylabel('True')
         if XAI:
-            plt.suptitle('RFE-SHAP (Pooled Confusion Matrix)')
-            plt.title('Cross-validated Accuracy: {:.3f} +- {:.3f}'.format(avg_score, std_score))
+            plt.title('RFE-SHAP (Pooled Confusion Matrix)')
+            #plt.title('Cross-validated Accuracy: {:.3f} +- {:.3f}'.format(avg_score, std_score))
         else:
-            plt.suptitle('RFE (Pooled Confusion Matrix)')
-            plt.title('Cross-validated Accuracy: {:.3f} +- {:.3f}'.format(avg_score, std_score))
+            plt.title('RFE (Pooled Confusion Matrix)')
+            #plt.title('Cross-validated Accuracy: {:.3f} +- {:.3f}'.format(avg_score, std_score))
 
         if XAI:
             plt.savefig(export_dir + '/shap_norm_cm_{}.png'.format(SEED), dpi=400)
         else:
             plt.savefig(export_dir + '/norm_cm_{}.png'.format(SEED), dpi=400)
-        print(1)
-
-
-
-
-
-    

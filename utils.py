@@ -61,9 +61,6 @@ def prune_corr(data, thresh=0.95, plot=False):
             if ft_class in FT_CLASSES:
                 FT_CLASSES[ft_class].append(ft_label)
 
-        #TODO: now have way to count num of features per class, and add secondary axis grouping by ft class
-        print(1)
-
         ax.set_xticks(np.arange(0, corr_matrix.shape[0]), labels=ft_labels, rotation='vertical')
         ax.set_yticks(np.arange(0, corr_matrix.shape[1]), labels=ft_labels, rotation=0)
 
@@ -73,7 +70,5 @@ def prune_corr(data, thresh=0.95, plot=False):
 
         #plt.savefig('corr_matrix.png')
         plt.show()
-
-        print(1)
 
     return X, to_prune

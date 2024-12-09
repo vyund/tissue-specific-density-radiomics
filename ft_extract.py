@@ -17,7 +17,7 @@ with open('exclude.txt') as f:
 EXCLUDE = [e.split(' - ')[0] for e in exclude]
 
 TISSUE_TYPE = 'dense'
-VOLUMETRIC = True
+VOLUMETRIC = False
 
 def get_tissue_mask(mask, tissue_type):
     if mask.ndim == 2:
@@ -38,19 +38,17 @@ def get_tissue_mask(mask, tissue_type):
     return mask
 
 if __name__ == '__main__':
-    data_dir = "\\\\rad-maid-002/D/Users/vincent/prospr_data/data/all"
+    data_dir = '/path/to/data'
     if VOLUMETRIC:
         export_dir = './extracted_fts/3D_'
         params = './params/params_3D.yaml'
     else:
-        export_dir = './extracted_ftss/'
+        export_dir = './extracted_fts/'
         params = './params/params.yaml'
 
     extractor = featureextractor.RadiomicsFeatureExtractor(params)
 
     extracted_fts = pd.DataFrame()
-
-    #TODO: make extraction log text file (date of extraction, package versions, radiomic features, etc.)
 
     start_i = 0
     data = os.listdir(data_dir)
@@ -65,7 +63,7 @@ if __name__ == '__main__':
 
         sample_npz = np.load(data_dir + '/' + sample)
 
-        if VOLUMETRIC: #TODO: determine best way to downsample and to what new dimensions
+        if VOLUMETRIC:
             img = sitk.GetImageFromArray(zoom(sample_npz['rec_3D'], (1, 0.1, 0.1)))
             mask = sitk.GetImageFromArray(zoom(get_tissue_mask(sample_npz['mask_3D'], TISSUE_TYPE), (1, 0.1, 0.1)))
         else:
