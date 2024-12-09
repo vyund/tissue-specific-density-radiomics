@@ -138,11 +138,11 @@ if __name__ == '__main__':
     
     if AFTER:
         if XAI:
-            selected_fts_path = './selected_fts/i_shap_selected_fts_42.csv'
-            selected_fts_path_val = './selected_fts/ii_shap_selected_fts_42.csv'
+            selected_fts_path = './selected_fts/i_shap_selected_fts_{}.csv'.format(SEED)
+            selected_fts_path_val = './selected_fts/ii_shap_selected_fts_{}.csv'.format(SEED)
         else:
-            selected_fts_path = './selected_fts/i_selected_fts_42.csv'
-            selected_fts_path_val = './selected_fts/ii_selected_fts_42.csv'
+            selected_fts_path = './selected_fts/i_selected_fts_{}.csv'.format(SEED)
+            selected_fts_path_val = './selected_fts/ii_selected_fts_{}.csv'.format(SEED)
         
         selected_fts = pd.read_csv(selected_fts_path)['0'].to_list()
         selected_fts = [*set(selected_fts)]
